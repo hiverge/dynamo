@@ -342,13 +342,12 @@ def benchmark_on_dataset():
         if throughput_base == 0.0:
             throughput_base = total_token_throughput
 
-        eps = 1e-9
-        throughput_ratio = (request_throughput + eps) / (throughput_base + eps)
-        ttft_ratio = (time_to_first_token + eps) / (ttft_base + eps)
-        fitness = math.log(throughput_ratio) - math.log(ttft_ratio)
+        fitness = 0.7 * math.log(time_to_first_token) + 0.3 * math.log(inter_token_latency)
 
         return {
             "fitness": fitness,
+            "initial_time_to_first_token": ttft_base,
+            "initial_total_token_throughput": throughput_base,
             "signature": [float(time_to_first_token), float(inter_token_latency), float(total_token_throughput)],
             "time_to_first_token": float(time_to_first_token),
             "time_to_second_token": float(time_to_second_token),
