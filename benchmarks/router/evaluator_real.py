@@ -342,7 +342,7 @@ def benchmark_on_dataset():
         if throughput_base == 0.0:
             throughput_base = total_token_throughput
 
-        fitness = 0.7 * math.log(time_to_first_token) + 0.3 * math.log(inter_token_latency)
+        fitness = -(0.7 * math.log(time_to_first_token) + 0.3 * math.log(inter_token_latency))
 
         return {
             "fitness": fitness,
