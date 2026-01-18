@@ -330,6 +330,7 @@ def main():
     prefix_ratios = []
     ttft_values = []
     throughput_values = []
+    itl_values = []
 
     current_seed = args.seed
 
@@ -352,11 +353,12 @@ def main():
         if result is not None:
             ttft = result["time_to_first_token"]["avg"]
             throughput = result["output_token_throughput"]["avg"]
+            itl = result["inter_token_latency"]["avg"]
 
             prefix_ratios.append(prefix_ratio)
             ttft_values.append(ttft)
             throughput_values.append(throughput)
-
+            itl_values.append(itl)
             logger.info(
                 f"Prefix ratio {prefix_ratio}: TTFT={ttft:.2f}ms, Throughput={throughput:.2f} tokens/s"
             )
@@ -411,6 +413,7 @@ def main():
             "prefix_ratios": prefix_ratios,
             "ttft_values": ttft_values,
             "throughput_values": throughput_values,
+            "itl_values": itl_values,
             "config": {
                 "model": args.model,
                 "tokenizer": args.tokenizer,
