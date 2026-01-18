@@ -63,7 +63,13 @@ pub struct SchedulingRequest {
     pub token_seq: Option<Vec<SequenceHash>>,
     pub isl_tokens: usize,
     pub overlaps: OverlapScores,
+    // Number of active decode blocks for each worker if this request is scheduled there.
+    // Calculated as current blocks + new blocks, where new blocks consider overlap
+    // to reduce the estimated decode burden for cached portions.
     pub decode_blocks: HashMap<WorkerWithDpRank, usize>,
+    // Number of prefill tokens for each worker if this request is scheduled there.
+    // Represents tokens requiring computation after subtracting cached tokens
+    // (overlap * block_size) from the total input sequence length.
     pub prefill_tokens: HashMap<WorkerWithDpRank, usize>,
     // Router config overrides for this specific request
     pub router_config_override: Option<RouterConfigOverride>,
