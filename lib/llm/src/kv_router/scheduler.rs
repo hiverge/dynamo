@@ -470,134 +470,55 @@ impl WorkerSelector for DefaultWorkerSelector {
 
         let mut worker_logits = HashMap::new();
 
-        // Calculate mean decode load for load balancing
-        let all_decode_loads: Vec<f64> = decode_blocks.values().map(|&v| v as f64).collect();
-        let mean_decode = if !all_decode_loads.is_empty() {
-            all_decode_loads.iter().sum::<f64>() / all_decode_loads.len() as f64
-        } else {
-            0.0
-        };
-
-        // Find max overlap for normalization
-        let max_overlap = overlaps.values().max().copied().unwrap_or(0);
-
-        // Calculate logits for each worker with sequence-aware affinity
+        // Calculate logits for each worker with dp_rank
+        // Outer loop: iterate over all workers from runtime config
+        // Inner loop: iterate over all dp_ranks for each worker
         for (worker_id, config) in workers.iter() {
-            let data_parallel_size = config.as_ref().map(|c| c.data_parallel_size).unwrap_or(1);
+            // Get data_parallel_size from runtime config
+            // data_parallel_size defaults to 1 in ModelRuntimeConfig
+            let data_parallel_size = config.as_ref().map(|c| c.data_parallel_size).unwrap_or(1); // Fallback if config is None
 
+            // Iterate over all dp_ranks for this worker
             for dp_rank in 0..data_parallel_size {
                 let worker = WorkerWithDpRank::new(*worker_id, dp_rank);
 
+                // Get overlap for this worker (defaults to 0 if not in overlaps)
                 let overlap = *overlaps.get(&worker).unwrap_or(&0);
-                let prefill_token = *prefill_tokens.get(&worker).unwrap_or(&isl);
-                let decode_block = *decode_blocks.get(&worker).unwrap_or(&0) as f64;
 
-                // Get configuration parameters
+                // this is the number of prefill tokens the worker would have if the request were scheduled there
+                let prefill_token = *prefill_tokens.get(&worker).unwrap_or(&isl);
+                let potential_prefill_block = (prefill_token as f64) / (block_size as f64);
+
+                // this is the number of decode blocks the worker would have if the request were scheduled there
+                let decode_block = *decode_blocks
+                    .get(&worker)
+                    .unwrap_or(&(potential_prefill_block.floor() as usize))
+                    as f64;
+
+                // Use override if provided, otherwise use default config
                 let overlap_weight = request
                     .router_config_override
                     .as_ref()
                     .and_then(|cfg| cfg.overlap_score_weight)
                     .unwrap_or(self.kv_router_config.overlap_score_weight);
 
-                // Calculate cache hit ratio
-                let cache_hit_ratio = if request_blocks > 0 {
-                    (overlap as f64) / (request_blocks as f64)
-                } else {
-                    0.0
-                };
-
-                // === SEQUENCE AFFINITY BONUS ===
-                // Key insight: Workers with high overlap have seen similar sequences
-                // This is our proxy for sequence affinity in a stateless selector
-                // Apply exponential bonus for high cache hits to create strong affinity
-                let affinity_bonus = if overlap > 0 {
-                    // Exponential scaling: small overlaps get modest bonus, large overlaps get massive bonus
-                    let normalized_overlap = (overlap as f64) / (max_overlap.max(1) as f64);
-                    // Use power function to create strong preference for high-overlap workers
-                    let affinity_strength = normalized_overlap.powf(2.5);
-                    // Scale by input size to make bonus meaningful relative to costs
-                    let bonus_magnitude = (request_blocks as f64) * overlap_weight * 3.0;
-                    affinity_strength * bonus_magnitude
-                } else {
-                    0.0
-                };
-
-                // === PREFILL COST WITH CACHE AWARENESS ===
-                let prefill_blocks = (prefill_token as f64) / (block_size as f64);
-                // Cache hits reduce prefill work - use aggressive multiplier reduction
-                let cache_effectiveness = 1.0 - (0.98 * cache_hit_ratio);
-                let prefill_cost = overlap_weight * prefill_blocks * cache_effectiveness;
-
-                // === LOAD BALANCING ===
-                // Penalize workers significantly above mean load
-                let load_deviation = (decode_block - mean_decode).max(0.0);
-                let load_penalty = load_deviation * 0.4;
-
-                // === CAPACITY PRESSURE ===
-                let total_kv_blocks = config
-                    .as_ref()
-                    .and_then(|c| c.total_kv_blocks)
-                    .unwrap_or(u64::MAX);
-                let capacity_penalty = if total_kv_blocks < u64::MAX {
-                    let utilization = decode_block / (total_kv_blocks as f64);
-                    if utilization > 0.7 {
-                        // Sharp penalty for high utilization to prevent saturation
-                        let pressure = ((utilization - 0.7) / 0.3).min(1.0);
-                        pressure.powf(2.0) * prefill_blocks * 5.0
-                    } else {
-                        0.0
-                    }
-                } else {
-                    0.0
-                };
-
-                // === DECODE COST ===
-                // Small weight for base decode load
-                let decode_cost = decode_block * 0.08;
-
-                // === FINAL COST CALCULATION ===
-                // Lower is better. Affinity bonus is subtracted (negative cost = good)
-                let logit =
-                    prefill_cost + decode_cost + load_penalty + capacity_penalty - affinity_bonus;
+                // Calculate logit (lower is better)
+                let logit = overlap_weight * potential_prefill_block + decode_block;
 
                 worker_logits.insert(worker, logit);
 
                 tracing::info!(
-                    "Worker worker_id={} dp_rank={:?}: logit={:.3} = \
-                     prefill({:.3})[blocks={:.1}*cache_eff={:.3}*weight={:.2}] + \
-                     decode({:.3}) + load_penalty({:.3}) + capacity({:.3}) - \
-                     AFFINITY_BONUS({:.3})[overlap={}/{}, ratio={:.2}, strength={:.3}], \
-                     decode_blocks={:.0}, util={:.2}",
+                    "Formula for worker_id={} dp_rank={:?} with {overlap} cached blocks: {logit:.3} \
+                     = {overlap_weight:.1} * prefill_blocks + decode_blocks \
+                     = {overlap_weight:.1} * {potential_prefill_block:.3} + {decode_block:.3}",
                     worker.worker_id,
-                    worker.dp_rank,
-                    logit,
-                    prefill_cost,
-                    prefill_blocks,
-                    cache_effectiveness,
-                    overlap_weight,
-                    decode_cost,
-                    load_penalty,
-                    capacity_penalty,
-                    affinity_bonus,
-                    overlap,
-                    request_blocks,
-                    cache_hit_ratio,
-                    if overlap > 0 {
-                        (overlap as f64 / max_overlap.max(1) as f64).powf(2.5)
-                    } else {
-                        0.0
-                    },
-                    decode_block,
-                    if total_kv_blocks < u64::MAX {
-                        decode_block / total_kv_blocks as f64
-                    } else {
-                        0.0
-                    }
+                    worker.dp_rank
                 );
             }
         }
 
-        // Use temperature-based sampling
+        // Use softmax sampling to select worker(s)
+        // Use override if provided, otherwise use default config
         let temperature = request
             .router_config_override
             .as_ref()
@@ -605,12 +526,20 @@ impl WorkerSelector for DefaultWorkerSelector {
             .unwrap_or(self.kv_router_config.router_temperature);
         let candidates = softmax_sample(&worker_logits, temperature);
 
-        // Tie-breaking: prefer higher overlap for stronger affinity
+        // If multiple candidates (tied), use tree size as tie-breaker
+        // If tree sizes are also equal, min_by_key uses HashMap iteration order (pseudo-random)
         let best_worker = if candidates.len() > 1 {
-            tracing::info!("Tie detected, breaking with overlap preference");
+            tracing::info!("Multiple workers tied with same logit, using tree size as tie-breaker");
             *candidates
                 .iter()
-                .max_by_key(|w| overlaps.get(w).copied().unwrap_or(0))
+                .min_by_key(|worker| {
+                    request
+                        .overlaps
+                        .tree_sizes
+                        .get(worker)
+                        .copied()
+                        .unwrap_or(0)
+                })
                 .expect("candidates should not be empty")
         } else {
             candidates[0]
@@ -620,6 +549,7 @@ impl WorkerSelector for DefaultWorkerSelector {
 
         let best_overlap = *overlaps.get(&best_worker).unwrap_or(&0);
 
+        // this is a runtime config set on a per worker basis, not per dp-rank
         let total_blocks_info = workers
             .get(&best_worker.worker_id)
             .and_then(|cfg| cfg.as_ref())
@@ -627,12 +557,20 @@ impl WorkerSelector for DefaultWorkerSelector {
             .map(|blocks| format!(", total blocks: {}", blocks))
             .unwrap_or_default();
 
+        let tree_size = request
+            .overlaps
+            .tree_sizes
+            .get(&best_worker)
+            .copied()
+            .unwrap_or(0);
+
         tracing::info!(
-            "Selected worker: worker_id={} dp_rank={:?}, logit: {:.3}, cached blocks: {}{}",
+            "Selected worker: worker_id={} dp_rank={:?}, logit: {:.3}, cached blocks: {}, tree size: {}{}",
             best_worker.worker_id,
             best_worker.dp_rank,
             best_logit,
             best_overlap,
+            tree_size,
             total_blocks_info
         );
 
