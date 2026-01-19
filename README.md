@@ -1,16 +1,10 @@
 # Dynamo
 
-Dynamo is designed to be inference engine agnostic (supports TRT-LLM, vLLM, SGLang or others) and captures LLM-specific capabilities such as:
-
-* Disaggregated prefill & decode inference – Maximizes GPU throughput and facilitates trade off between throughput and latency.
-* Dynamic GPU scheduling – Optimizes performance based on fluctuating demand
-* LLM-aware request routing – Eliminates unnecessary KV cache re-computation
-* Accelerated data transfer – Reduces inference response time using NIXL.
-* KV cache offloading – Leverages multiple memory hierarchies for higher system throughput
+Dynamo is a high-throughput, low-latency inference framework.
 
 ## KV Router
 
-The Dynamo KV Router intelligently routes requests by evaluating their computational costs across different workers. It considers both decoding costs (from active blocks) and prefill costs (from newly computed blocks). Optimizing the KV Router is critical for achieving maximum throughput and minimum latency in distributed inference setups.
+The Dynamo KV Router intelligently routes requests by evaluating their computational costs across different workers. It considers both decoding costs (from active blocks) and prefill costs (from newly computed blocks).
 
 ## KV Router Architecture
 
@@ -34,8 +28,6 @@ Where:
 - Lower logit values are better (less computational cost)
 - The router uses softmax sampling with optional temperature to select workers
 
-### Key Parameter: kv-overlap-score-weight
-
 The `kv-overlap-score-weight` parameter (default: 1.0) controls the balance between prefill and decode optimization:
 
 - **Higher values (> 1.0)**: Emphasize reducing prefill cost
@@ -48,7 +40,7 @@ The `kv-overlap-score-weight` parameter (default: 1.0) controls the balance betw
   - Optimizes for Inter-Token Latency (ITL)
   - Best for workloads with long generation sequences
 
-### Temperature-Based Routing
+## Temperature-Based Routing
 
 The `router_temperature` parameter controls routing randomness:
 - **0.0 (default)**: Deterministic selection of the best worker
@@ -57,6 +49,5 @@ The `router_temperature` parameter controls routing randomness:
 
 ## Objective
 
-You task is to optimize the cost function to minimize overall latency and maximize throughput in a distributed inference setup. Consider the trade-offs between prefill and decode costs.
-You're free to change any part of the code, add new functions, add more parameters or change the mechanism
-of the cost function and temperature-based routing.
+You task is to optimize the code to minimize overall latency and maximize throughput in a distributed inference setup.
+You're free to change any part of the code, like adding new functions, adding more parameters or changing the mechanism itself.
