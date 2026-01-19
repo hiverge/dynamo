@@ -496,6 +496,9 @@ impl WorkerSelector for DefaultWorkerSelector {
                     as f64;
 
                 // Use override if provided, otherwise use default config
+                // The kv-overlap-score-weight parameter (default: 1.0) controls the balance between prefill and decode optimization:
+                // Higher values (> 1.0): Emphasize reducing prefill cost
+                // Lower values (< 1.0): Emphasize decode performance
                 let overlap_weight = request
                     .router_config_override
                     .as_ref()
