@@ -495,26 +495,39 @@ impl WorkerSelector for DefaultWorkerSelector {
                     .unwrap_or(&(potential_prefill_block.floor() as usize))
                     as f64;
 
-                // The kv-overlap-score-weight parameter (default: 1.0) controls the balance between prefill and decode optimization:
-                // Higher values (> 1.0): Emphasize reducing prefill cost
-                // Lower values (< 1.0): Emphasize decode performance
+                // Use override if provided, otherwise use default config
                 let overlap_weight = request
                     .router_config_override
                     .as_ref()
                     .and_then(|cfg| cfg.overlap_score_weight)
                     .unwrap_or(self.kv_router_config.overlap_score_weight);
 
-                // Calculate logit (lower is better)
-                let logit = overlap_weight * potential_prefill_block + decode_block;
+                // Cost function components (lower logit is better):
+                // 1. Prefill blocks: primary cost (what we need to compute)
+                // 2. Decode blocks: secondary cost (indicates worker load)
+                // 3. Negative overlap: reward cache hits (subtract cached blocks)
+
+                // The overlap_weight controls the balance between prefill computation vs load distribution
+                // Higher weight = prioritize prefill efficiency (prefer cached content)
+                // Lower weight = more load balancing
+
+                let logit =
+                    overlap_weight * potential_prefill_block + decode_block - (overlap as f64);
 
                 worker_logits.insert(worker, logit);
 
                 tracing::info!(
-                    "Formula for worker_id={} dp_rank={:?} with {overlap} cached blocks: {logit:.3} \
-                     = {overlap_weight:.1} * prefill_blocks + decode_blocks \
-                     = {overlap_weight:.1} * {potential_prefill_block:.3} + {decode_block:.3}",
+                    "Formula for worker_id={} dp_rank={:?}: logit={:.3} \
+                     = {overlap_weight:.1}*prefill({:.3}) + decode({:.3}) - overlap({}) \
+                     [request_blocks={}, isl={}]",
                     worker.worker_id,
-                    worker.dp_rank
+                    worker.dp_rank,
+                    logit,
+                    potential_prefill_block,
+                    decode_block,
+                    overlap,
+                    request_blocks,
+                    isl
                 );
             }
         }
