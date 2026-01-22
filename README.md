@@ -49,5 +49,5 @@ The `router_temperature` parameter controls routing randomness:
 
 ## Objective
 
-You task is to optimize the code to minimize overall latency and maximize throughput in a distributed inference setup.
+You task is to optimize the code to minimize overall latency and maximize throughput in a distributed inference setup. Remove the kv_overlap_score_weight totally to make it adaptive to different workloads without manual tuning.
 You're free to change any part of the code, like adding new functions, adding more parameters or changing the mechanism itself.
