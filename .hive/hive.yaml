@@ -1,0 +1,26 @@
+project_name: dynamo
+log_level: DEBUG
+coordinator_config_name: kante
+repo:
+  source: /Users/kerthcet/Workspaces/hiverge/dynamo #change me
+  evaluation_script: .hive/evaluator.py
+  evolve_files_and_ranges: lib/llm/src/kv_router/scheduler.rs:111-272
+  branch: main
+runtime:
+  num_agents: 30
+  max_runtime_seconds: 18000
+  max_iterations: -1
+sandbox:
+  target_platforms:
+    - linux/amd64
+  timeout: 600
+  resources:
+    cpu: "8"
+    memory: "8Gi"
+    extended_resources:
+      ephemeral-storage: 8Gi
+provider:
+  gcp:
+    enabled: true
+    spot: true
+    project_id: runsandbox-449400
