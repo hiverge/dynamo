@@ -13,7 +13,7 @@ if __name__ == "__main__":
     VENV = ".venv"
     DATA = f"{ROOT}/mooncake_trace.jsonl"
     MOCKER_OUTPUT = f"{ROOT}/replay-report.json"
-    NUM_WORKERS = 4
+    NUM_WORKERS = 8
     
     # Re-compile Dynamo
     COMPILE_CMD = (
@@ -58,6 +58,6 @@ if __name__ == "__main__":
     }
     hive_output["signature"] = [float(mean_ttft_ms), float(mean_itl_ms)]
 
-    print(json.dumps({"output": hive_output, "metainfo": "Success"},indent=2))
+    print(json.dumps({"output": hive_output, "metainfo": "Success"}))
 
     
