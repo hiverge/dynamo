@@ -4,7 +4,7 @@ coordinator_config_name: kante
 repo:
   source: /Users/kerthcet/Workspaces/hiverge/dynamo #change me
   evaluation_script: .hive/evaluator.py
-  evolve_files_and_ranges: lib/llm/src/kv_router/scheduler.rs:111-272
+  evolve_files_and_ranges: lib/kv-router/src/scheduling/selector.rs:111-272
   branch: main
 runtime:
   num_agents: 30
